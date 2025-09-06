@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mango Coin</title>
+  <h1> click the mango </h1>
+  <p> to get coin </p>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: yellow;
+      font-family: sans-serif;
+    }
+    #mango-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      width: 200px;
+      height: 200px;
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-image: url('https://upload.wikimedia.org/wikipedia/commons/9/90/Hapus_Mango.jpg');
+    }
+    #coin-counter {
+      font-size: 2em;
+      margin: 20px;
+    }
+    #shop {
+      margin-top: 30px;
+    }
+    .shop-btn {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 1em;
+    }
+  </style>
+</head>
+<body>
+  <div id="coin-counter">Coins: 0</div>
+  <button id="mango-btn"></button>
+  <div id="shop">
+    <label> Buy Price (fixed at 100): 100</label><br>
+    <label>Set Sell Price (0–98): <input type="range" id="sell-price-slider" min="0" max="98" value="98"> <span id="current-sell-price">98</span></label><br>
+    <button class="shop-btn" onclick="buyMango()">Buy Mango</button>
+    <button class="shop-btn" onclick="sellMango()">Sell Mango</button>
+    <div>Owned Mangos: <span id="owned-mango">0</span></div>
+  </div>
+
+  <audio id="click-sound" src="https://www.soundjay.com/button/sounds/button-09.mp3" preload="auto"></audio>
+  <audio id="buy-sound" src="https://www.soundjay.com/button/sounds/button-3.mp3" preload="auto"></audio>
+  <audio id="sell-sound" src="https://www.soundjay.com/button/sounds/button-4.mp3" preload="auto"></audio>
+  <audio id="bonus-sound" src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" preload="auto"></audio>
+
+  <script>
+    let coins = 0;
+    let ownedMango = 0;
+    let clickCount = 0;
+    const mangoPrice = 100;
+    let sellPrice = 120;
+
+    const coinCounter = document.getElementById("coin-counter");
+    const mangoBtn = document.getElementById("mango-btn");
+    const ownedMangoDisplay = document.getElementById("owned-mango");
+    const clickSound = document.getElementById("click-sound");
+    const buySound = document.getElementById("buy-sound");
+    const sellSound = document.getElementById("sell-sound");
+    const bonusSound = document.getElementById("bonus-sound");
+    const sellPriceSlider = document.getElementById("sell-price-slider");
+    const currentSellPrice = document.getElementById("current-sell-price");
+
+    sellPriceSlider.addEventListener("input", () => {
+      sellPrice = parseInt(sellPriceSlider.value);
+      currentSellPrice.textContent = sellPrice;
+    });
+
+    mangoBtn.addEventListener("click", () => {
+      coins++;
+      clickCount++;
+      clickSound.currentTime = 0;
+      clickSound.play();
+
+      if (ownedMango === 100 && !window.bonusGiven) {
+        coins += 100000;
+        window.bonusGiven = true;
+        bonusSound.play();
+        alert("Bonus! 100 mangos owned — you received 100,000 coins!");
+      }
+
+      // Do NOT hide mango button anymore
+      updateDisplay();
+    });
+
+    function updateDisplay() {
+      coinCounter.textContent = `Coins: ${coins}`;
+      ownedMangoDisplay.textContent = ownedMango;
+    }
+
+    function buyMango() {
+      if (coins >= mangoPrice) {
+        coins -= mangoPrice;
+        ownedMango++;
+        buySound.play();
+        updateDisplay();
+      } else {
+        alert("Not enough coins to buy a mango!");
+      }
+    }
+
+    function sellMango() {
+      if (ownedMango > 0) {
+        coins += sellPrice;
+        ownedMango--;
+        sellSound.play();
+        updateDisplay();
+      } else {
+        alert("You don't have any mangos to sell!");
+      }
+    }
+  </script>
+ 
+              <color="#0d0d0d"  >
+ <font color="#0d0d0d" > <a href="game.html" class="back">⬅ Back to Game HUB</a> 
+ </font> 
+              </color>
+ 
+</body>
+</html>
