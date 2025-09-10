@@ -1,3 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ZenZone — ShapeFix Drawing (Relax & Draw)</title>
+<style>
+  :root{
+    --bg:#061428; --panel:white; --muted:#9fb6d0; --accent:#62f5d2; --accent2:#72b7ff;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;background:linear-gradient(180deg,var(--bg),#041123); color:#e8f3ff}
+  .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .board{width:100%;max-width:1200px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:12px; box-shadow:0 20px 50px rgba(2,6,23,0.6); border:1px solid rgba(255,255,255,0.04); display:grid; grid-template-columns: 1fr 320px; gap:12px}
+  canvas{width:100%; height:720px; display:block; border-radius:8px; background:linear-gradient(180deg,#071425,#03101a);}
+  .sidebar{padding:10px; display:flex;flex-direction:column; gap:10px; color:var(--muted)}
+  h1{margin:0;font-size:18px;color:#fff}
+  .muted{color:var(--muted);font-size:13px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:8px;color:var(--muted);cursor:pointer}
+  .btn.primary{background:linear-gradient(90deg,var(--accent),var(--accent2)); color:#03101b;border:none;padding:8px 12px;font-weight:600}
+  .seg{background:rgba(255,255,255,0.02);padding:8px;border-radius:8px}
+  label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+  input[type=color]{width:46px;height:34px;border-radius:6px;border:none;padding:0;cursor:pointer}
+  input[type=range]{width:100%}
+  select{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:6px;border-radius:6px;color:var(--muted)}
+  .small{font-size:12px;color:var(--muted)}
+  .footer{font-size:12px;color:var(--muted);margin-top:auto}
+  @media (max-width:980px){ .board{grid-template-columns:1fr} canvas{height:560px} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="board" role="application" aria-label="ZenZone ShapeFix Drawing">
+      <div>
+        <canvas id="canvas" width="1000" height="720" tabindex="0"></canvas>
+      </div>
+      <aside class="sidebar" aria-hidden="false">
+        <div>
+          <h1>ZenZone — ShapeFix Drawing</h1>
+          <div class="muted">Draw freely. When Auto-Fix is ON closed messy shapes snap to neat geometry.</div>
+        </div>
 
+        <div class="seg">
+          <label>Brush Color</label>
+          <div class="row">
+            <input id="color" type="color" value="#62f5d2" />
+            <button class="btn" id="swap">Palette</button>
+          </div>
+        </div>
 
+        <div class="seg">
+          <label>Brush Size: <span id="brushSizeLabel">6</span></label>
+          <input id="size" type="range" min="1" max="48" value="6" />
+        </div>
+
+        <div class="seg">
+          <label>Brush Type</label>
+          <select id="brushType">
+            <option value="pen">Pen (solid)</option>
+            <option value="soft">Soft Brush</option>
+            <option value="spray">Spray</option>
+          </select>
+        </div>
+
+        <div class="seg">
+          <label>Auto-Fix Shapes</label>
+          <div class="row">
+            <button class="btn" id="toggleAuto">Auto-Fix: ON</button>
+            <button class="btn" id="undo">Undo</button>
+            <button class="btn" id="clear">Clear</button>
+          </div>
+        </div>
+
+        <div class="seg">
+          <label>Extras</label>
+          <div class="row">
+            <button class="btn" id="gridToggle">Toggle Grid</button>
+            <button class="btn primary" id="savePng">Save PNG</button>
+          </div>
+        </div>
+
+        <div class="seg small">
+          <div><b>How it works</b></div>
+          <div class="muted small">Draw with left mouse or single finger. If you draw a closed loop and Auto-Fix is ON, the app detects the shape and replaces your stroke with a neat geometric shape (circle, triangle, rectangle, or polygon).</div>
+        </div>
+
+        <div class="footer">Tip: draw a messy circle — it will become a perfect circle. Built for <b>ZenZone</b>.</div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+// ZenZone ShapeFix Drawing — single-file JS
+// Features:
+//  - multi brush colors + sizes + types
+//  - left-mouse / single-finger drawing only
+//  - undo, clear, save PNG
+//  - auto-correct closed strokes into shapes (circle, triangle, rectangle, polygon)
+
+// ---------- Setup ----------
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+const W = canvas.width, H = canvas.height;
+canvas.style.width = W + 'px';
+canvas.style.height = H + 'px';
+ctx.scale(DPR, DPR);
+
+// UI
+const colorInput = document.getElementById('color');
+const sizeInput = document.getElementById('size');
+const brushSizeLabel = document.getElementById('brushSizeLabel');
+const brushTypeSelect = document.getElementById('brushType');
+const toggleAutoBtn = document.getElementById('toggleAuto');
+const undoBtn = document.getElementById('undo');
+const clearBtn = document.getElementById('clear');
+const savePngBtn = document.getElementById('savePng');
+const gridToggleBtn = document.getElementById('gridToggle');
+const swapBtn = document.getElementById('swap');
+
+let brushColor = colorInput.value;
+let brushSize = parseInt(sizeInput.value, 10);
+let brushType = brushTypeSelect.value;
+let autoFix = true;
+let showGrid = false;
+
+// Data model: we store an array of "objects"
+// each object is either {type:'stroke', points:[{x,y}], color, size, bt} or {type:'shape', shape:'circle'|'rect'|'poly'|'tri', x,y,r or path:[], color, size}
+let objects = [];
+let undoStack = [];
+
+// live drawing
+let currentStroke = null;
+let pointerDown = false;
+let pointerId = null; // to ensure single-finger drawing
+let eraseMode = false; // long-press to erase (not implemented heavy)
+let lastPointer = null;
+
+// helpers
+function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+function distXY(x1,y1,x2,y2){ const dx=x1-x2, dy=y1-y2; return Math.sqrt(dx*dx+dy*dy); }
+function mean(arr){ return arr.reduce((s,v)=>s+v,0)/arr.length; }
+function std(arr,m){ const mm = m===undefined?mean(arr):m; return Math.sqrt(arr.reduce((s,v)=>s+(v-mm)*(v-mm),0)/arr.length); }
+
+// ---------- Input handling (left mouse only, single touch) ----------
+canvas.addEventListener('mousedown', (e)=>{
+  if(e.button!==0) return; // left only
+  startPointer(e.offsetX, e.offsetY, e.pointerId || 'mouse');
+});
+canvas.addEventListener('mousemove', (e)=> {
+  if(!pointerDown) return;
+  movePointer(e.offsetX, e.offsetY);
+});
+window.addEventListener('mouseup', (e)=> {
+  if(e.button!==0) return;
+  endPointer();
+});
+
+// Touch support - ensure single finger only
+canvas.addEventListener('touchstart', (e)=>{
+  if(e.touches.length>1) return; // ignore multi-touch
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const x = (t.clientX - rect.left);
+  const y = (t.clientY - rect.top);
+  startPointer(x, y, t.identifier);
+}, {passive:false});
+canvas.addEventListener('touchmove', (e)=>{
+  if(e.touches.length>1) return; // ignore multitouch
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  movePointer(t.clientX - rect.left, t.clientY - rect.top);
+  e.preventDefault();
+}, {passive:false});
+canvas.addEventListener('touchend', (e)=> { endPointer(); }, {passive:false});
+
+function startPointer(x,y,id='mouse'){
+  if(pointerDown) return;
+  pointerDown = true; pointerId = id; eraseMode=false;
+  currentStroke = { type:'stroke', points:[{x,y}], color:brushColor, size:brushSize, bt:brushType };
+  lastPointer = {x,y};
+}
+function movePointer(x,y){
+  if(!pointerDown || !currentStroke) return;
+  const last = currentStroke.points[currentStroke.points.length-1];
+  const dx = x-last.x, dy = y-last.y;
+  if(Math.hypot(dx,dy) > 2) {
+    currentStroke.points.push({x,y});
+    lastPointer = {x,y};
+  }
+}
+function endPointer(){
+  if(!pointerDown) return;
+  pointerDown = false;
+  if(currentStroke && currentStroke.points.length > 1){
+    // push to objects (subject to auto-fix)
+    undoStack.push(JSON.stringify(objects)); // save state for undo
+    if(autoFix && isClosedStroke(currentStroke.points)){
+      const shapeObj = detectAndCreateShape(currentStroke);
+      if(shapeObj) objects.push(shapeObj);
+      else objects.push(currentStroke);
+    } else {
+      objects.push(currentStroke);
+    }
+  }
+  currentStroke = null;
+}
+
+// ---------- Auto-Fix logic: detect closed stroke and convert to shape ----------
+function isClosedStroke(pts){
+  if(pts.length < 6) return false;
+  const start = pts[0], end = pts[pts.length-1];
+  const d = dist(start, end);
+  // closed if endpoints are within small distance relative to stroke size
+  return d < 24;
+}
+
+// Simplify polyline using Ramer-Douglas-Peucker
+function simplify(points, epsilon){
+  if(points.length < 3) return points.slice();
+  const sqr = (a)=>a*a;
+  function getPerpDistance(p, a, b){
+    const A = p.x - a.x, B = p.y - a.y, C = b.x - a.x, D = b.y - a.y;
+    const dot = A*C + B*D; const lenSq = C*C + D*D;
+    const param = lenSq === 0 ? -1 : dot / lenSq;
+    let xx, yy;
+    if(param < 0){ xx = a.x; yy = a.y; }
+    else if(param > 1){ xx = b.x; yy = b.y; }
+    else { xx = a.x + param * C; yy = a.y + param * D; }
+    return Math.sqrt(sqr(p.x - xx) + sqr(p.y - yy));
+  }
+  function rdp(pts){
+    if(pts.length <= 2) return pts.slice();
+    let dmax = 0, index = -1;
+    const a = pts[0], b = pts[pts.length-1];
+    for(let i=1;i<pts.length-1;i++){
+      const d = getPerpDistance(pts[i], a, b);
+      if(d > dmax){ index = i; dmax = d; }
+    }
+    if(dmax > epsilon){
+      const left = rdp(pts.slice(0, index+1));
+      const right = rdp(pts.slice(index, pts.length));
+      return left.slice(0, left.length - 1).concat(right);
+    } else {
+      return [a,b];
+    }
+  }
+  return rdp(points);
+}
+
+// detect shape from stroke
+function detectAndCreateShape(stroke){
+  const pts = stroke.points.slice();
+  // compute centroid
+  const cx = mean(pts.map(p=>p.x));
+  const cy = mean(pts.map(p=>p.y));
+  const dists = pts.map(p=>Math.hypot(p.x-cx,p.y-cy));
+  const m = mean(dists);
+  const s = std(dists, m);
+  // circle test: low std relative to mean
+  if(m > 6 && (s / m) < 0.18){
+    // circle: compute radius mean
+    const r = m;
+    return { type:'shape', shape:'circle', x: cx, y: cy, r: r, color: stroke.color, size: stroke.size };
+  }
+
+  // else simplify to find corners
+  const simplified = simplify(pts, Math.max(8, stroke.size*0.9));
+  // remove near-duplicate last point
+  const simp = simplified.slice();
+  // close loops: ensure first != last
+  if(simp.length>2 && dist(simp[0], simp[simp.length-1]) < 8) simp.pop();
+
+  // if 3 points -> triangle
+  if(simp.length === 3){
+    const a = simp[0], b = simp[1], c = simp[2];
+    return { type:'shape', shape:'triangle', pts: [a,b,c], color: stroke.color, size: stroke.size };
+  }
+  // if 4 points -> rectangle-ish: compute bounding rotated rect by using these points
+  if(simp.length === 4){
+    // compute centroid and sort corners
+    const ccx = mean(simp.map(p=>p.x)), ccy = mean(simp.map(p=>p.y));
+    const sorted = simp.slice().sort((p,q)=>Math.atan2(p.y-ccy,p.x-ccx) - Math.atan2(q.y-ccy,q.x-ccx));
+    return { type:'shape', shape:'polygon', pts: sorted, color: stroke.color, size: stroke.size };
+  }
+  // if more points -> create smooth polygon fitted to simplified points
+  if(simp.length > 4){
+    return { type:'shape', shape:'polygon', pts: simp, color: stroke.color, size: stroke.size };
+  }
+
+  // fallback: not recognized
+  return null;
+}
+
+// ---------- Drawing primitives ----------
+function drawStroke(obj){
+  if(obj.bt === 'spray'){
+    // spray rendering: scatter dots along points
+    for(let i=0;i<obj.points.length;i++){
+      const p = obj.points[i];
+      const density = Math.max(2, Math.floor(obj.size / 2));
+      for(let k=0;k<density;k++){
+        const angle = Math.random()*Math.PI*2;
+        const r = Math.random()*obj.size;
+        ctx.fillStyle = obj.color;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(p.x + Math.cos(angle)*r, p.y + Math.sin(angle)*r, Math.max(1, obj.size/6), 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    return;
+  }
+
+  // pen or soft brush
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = obj.color;
+  if(obj.bt === 'soft') ctx.globalAlpha = 0.55;
+  else ctx.globalAlpha = 1;
+  ctx.lineWidth = obj.size;
+  ctx.beginPath();
+  ctx.moveTo(obj.points[0].x, obj.points[0].y);
+  for(let i=1;i<obj.points.length;i++){
+    const p = obj.points[i];
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawShape(obj){
+  ctx.fillStyle = obj.color;
+  ctx.strokeStyle = obj.color;
+  ctx.lineWidth = Math.max(2, obj.size/2);
+  ctx.globalAlpha = 0.98;
+
+  if(obj.shape === 'circle'){
+    ctx.beginPath();
+    ctx.arc(obj.x, obj.y, Math.max(4, obj.r), 0, Math.PI*2);
+    if(obj.size < 6) ctx.fill(); else ctx.fill();
+  } else if(obj.shape === 'triangle'){
+    ctx.beginPath();
+    ctx.moveTo(obj.pts[0].x, obj.pts[0].y);
+    ctx.lineTo(obj.pts[1].x, obj.pts[1].y);
+    ctx.lineTo(obj.pts[2].x, obj.pts[2].y);
+    ctx.closePath(); ctx.fill();
+  } else if(obj.shape === 'polygon'){
+    const pts = obj.pts;
+    if(!pts || pts.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- Render loop ----------
+function render(){
+  // background
+  ctx.fillStyle = '#071425';
+  ctx.fillRect(0,0,W,H);
+
+  // optional grid
+  if(showGrid){
+    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+    ctx.lineWidth = 1;
+    const step = 40;
+    for(let x=0;x<W;x+=step){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    }
+    for(let y=0;y<H;y+=step){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    }
+  }
+
+  // draw existing objects
+  for(const obj of objects){
+    if(obj.type === 'stroke') drawStroke(obj);
+    else if(obj.type === 'shape') drawShape(obj);
+  }
+
+  // draw current stroke preview
+  if(currentStroke){
+    drawStroke(currentStroke);
+    // mark endpoints for closed detection
+    const p0 = currentStroke.points[0];
+    const pN = currentStroke.points[currentStroke.points.length-1];
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath(); ctx.arc(p0.x,p0.y,3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(pN.x,pN.y,3,0,Math.PI*2); ctx.fill();
+  }
+
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+// ---------- Tools: Undo / Clear / Save / UI bindings ----------
+undoBtn.onclick = ()=>{
+  if(undoStack.length>0){
+    const prev = undoStack.pop();
+    objects = JSON.parse(prev);
+  } else {
+    objects.pop();
+  }
+};
+clearBtn.onclick = ()=>{
+  if(objects.length) undoStack.push(JSON.stringify(objects));
+  objects = [];
+};
+savePngBtn.onclick = ()=>{
+  // create temporary canvas to get exact pixel export
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = W*DPR; exportCanvas.height = H*DPR;
+  const ectx = exportCanvas.getContext('2d');
+  // draw background
+  ectx.fillStyle = '#071425'; ectx.fillRect(0,0,exportCanvas.width, exportCanvas.height);
+  // scale then render our objects at DPR
+  ectx.scale(DPR, DPR);
+  // render objects (simple draw)
+  for(const obj of objects){
+    if(obj.type === 'stroke'){
+      ectx.lineJoin = 'round'; ectx.lineCap = 'round';
+      ectx.strokeStyle = obj.color;
+      ectx.lineWidth = obj.size;
+      ectx.beginPath(); ectx.moveTo(obj.points[0].x, obj.points[0].y);
+      for(let i=1;i<obj.points.length;i++) ectx.lineTo(obj.points[i].x, obj.points[i].y);
+      ectx.stroke();
+    } else if(obj.type === 'shape'){
+      ectx.fillStyle = obj.color;
+      if(obj.shape === 'circle'){ ectx.beginPath(); ectx.arc(obj.x,obj.y,obj.r,0,Math.PI*2); ectx.fill(); }
+      else if(obj.shape === 'triangle'){ ectx.beginPath(); ectx.moveTo(obj.pts[0].x, obj.pts[0].y); ectx.lineTo(obj.pts[1].x,obj.pts[1].y); ectx.lineTo(obj.pts[2].x,obj.pts[2].y); ectx.closePath(); ectx.fill(); }
+       eles if (obj.shape === 'rectangle'){ectx.beginpath(); ectx.moveTo(obj.pts[0].x,obj.pts[0].y);ectx.lineTo(obj.pts)[1].x,obj.pts[1].y);ectx.lineTo(obj.pts[2].x,obj.pts[2].y); ctx.closePath(); ectx.fill();}
+     else if(obj.shape === 'polygon'){ ectx.beginPath(); ectx.moveTo(obj.pts[0].x,obj.pts[0].y); for(let i=1;i<obj.pts.length;i++) ectx.lineTo(obj.pts[i].x,obj.pts[i].y); ectx.closePath(); ectx.fill(); }  } ('image/png');
+  const a = document.createElement('a'); a.href = data; a.download = 'zenzone_drawing.png'; a.click();
+};
+
+// brush UI
+colorInput.oninput = (e)=> { brushColor = e.target.value; };
+sizeInput.oninput = (e)=> { brushSize = parseInt(e.target.value,10); brushSizeLabel.textContent = brushSize; };
+brushTypeSelect.onchange = (e)=> { brushType = e.target.value; };
+
+// toggle auto-fix
+toggleAutoBtn.onclick = ()=>{
+  autoFix = !autoFix;
+  toggleAutoBtn.textContent = 'Auto-Fix: ' + (autoFix ? 'ON' : 'OFF');
+};
+
+// grid toggle
+gridToggleBtn.onclick = ()=> { showGrid = !showGrid; gridToggleBtn.textContent = showGrid ? 'Grid ON' : 'Toggle Grid'; };
+
+// palette quick-swap
+swapBtn.onclick = ()=>{
+  const presets = ['#62f5d2','#72b7ff','#ffd166','#ff6b6b','#b98cff','#ffffff','#000000'];
+  const next = presets[(presets.indexOf(brushColor) + 1) % presets.length] || presets[0];
+  brushColor = next; colorInput.value = next;
+};
+
+// ---------- initialization: small demo object ----------
+objects.push({type:'shape', shape:'circle', x:160, y:160, r:48, color:'#62f5d2', size:6});
+objects.push({type:'shape', shape:'polygon', pts:[{x:820,y:200},{x:920,y:280},{x:900,y:380},{x:760,y:360}], color:'#72b7ff', size:8});
+
+// ---------- keyboard / extra interactions ----------
+window.addEventListener('keydown', (e)=>{
+  if(e.key === 'z' && (e.ctrlKey || e.metaKey)){ // undo
+    undoBtn.click();
+  }
+  if(e.key === 'Escape') clearBtn.click();
+});
+
+</script>
+</body>
+</html>
 
